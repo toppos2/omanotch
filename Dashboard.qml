@@ -39,6 +39,26 @@ Item {
     y: Math.round((root.strip - height) / 2)
     spacing: 4
     Text {
+      visible: root.notch.airpodsConnected && root.notch.airpodsLevel >= 0
+      anchors.verticalCenter: parent.verticalCenter
+      text: "󰋋"
+      color: root.notch.inkDim
+      font.family: root.notch.fontFamily
+      font.pixelSize: root.notch.captionSize + 2
+      textFormat: Text.PlainText
+    }
+    Text {
+      visible: root.notch.airpodsConnected && root.notch.airpodsLevel >= 0
+      anchors.verticalCenter: parent.verticalCenter
+      text: root.notch.airpodsLevel + "%"
+      color: root.notch.inkDim
+      font.family: root.notch.fontFamily
+      font.pixelSize: root.notch.captionSize
+      font.weight: Font.Medium
+      font.features: { "tnum": 1 }
+      textFormat: Text.PlainText
+    }
+    Text {
       anchors.verticalCenter: parent.verticalCenter
       text: root.notch.batteryIcon
       color: root.notch.batteryLow ? root.notch.urgentInk : root.notch.inkDim

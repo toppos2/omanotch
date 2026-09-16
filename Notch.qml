@@ -239,6 +239,7 @@ Item {
   // ------------------------------------------------------------- airpods
 
   property bool airpodsConnected: false
+  property var airpodsStatus: null
   readonly property string airpodsStatePath: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")) + "/librepods/status.json"
 
   FileView {
@@ -248,7 +249,7 @@ Item {
     printErrors: false
     onFileChanged: reload()
     onLoaded: root.applyAirpods(text())
-    onLoadFailed: root.airpodsConnected = false
+    onLoadFailed: { root.airpodsConnected = false; root.airpodsStatus = null }
   }
 
   function applyAirpods(raw) {
@@ -256,10 +257,22 @@ Item {
     var connected = status ? status.connected : false
     var was = airpodsConnected
     airpodsConnected = connected
+    airpodsStatus = connected ? status : null
     if (connected && !was && settled && settings.airpods) {
       var ev = Model.airpodsEvent(status, settings.eventDuration)
       if (ev) pushEvent(ev)
     }
+  }
+
+  // The lower of the two buds, so the number that matters (the one closer
+  // to dying) is what shows -- a single earbud out reports the other as -1.
+  readonly property int airpodsLevel: {
+    if (!airpodsStatus) return -1
+    if (airpodsStatus.isHeadset) return airpodsStatus.headset.level
+    var l = airpodsStatus.left.level, r = airpodsStatus.right.level
+    if (l < 0) return r
+    if (r < 0) return l
+    return Math.min(l, r)
   }
 
   // -------------------------------------------------------- notifications
