@@ -508,6 +508,35 @@ Item {
   }
   readonly property bool hasLiveTimer: activeReminder !== null && reminderRemainingNow > 0
 
+  // ------------------------------------------------------------- updates
+
+  // Same check the bar's own update widget runs, just also surfaced as a
+  // (non-urgent) Live Activity so it isn't easy to miss for days.
+  property bool updateAvailable: false
+  property bool updateAvailableRead: false
+  property string updateSummary: ""
+  Process {
+    id: updateProbe
+    command: ["omarchy-update-available"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.updateSummary = String(this.text || "").split("\n")[0].trim()
+    }
+    onExited: function(code) {
+      var on = code === 0
+      if (root.updateAvailableRead && on !== root.updateAvailable) root.flash("update", on, root.updateSummary)
+      root.updateAvailable = on
+      root.updateAvailableRead = true
+    }
+  }
+  Timer {
+    interval: 21600000
+    repeat: true
+    running: true
+    triggeredOnStart: true
+    onTriggered: if (!updateProbe.running) updateProbe.running = true
+  }
+
   readonly property var dials: [
     { key: "volume", icon: volumeMuted ? "󰖁" : (volumeLevel < 0.34 ? "󰕿" : (volumeLevel < 0.67 ? "󰖀" : "󰕾")), level: volumeLevel, active: !volumeMuted },
     { key: "brightness", icon: "󰃟", level: backlightLevel, active: true },
@@ -689,6 +718,8 @@ Item {
 
   // Only one live activity pins the island at a time; dictation is the most
   // directly interactive so it wins, then recording, then a running timer.
+  // An available update is not a live activity -- it can sit true for days,
+  // so it only gets a one-off flash (below), never a persistent pill.
   readonly property string activityKind: dictating ? "dictation" : (recording ? "recording" : (hasLiveTimer ? "timer" : ""))
   readonly property string activityIcon: {
     if (activityKind === "dictation") return dictationState === "transcribing" ? "󰔟" : "󰍬"

@@ -311,7 +311,8 @@ var FLASHES = {
   dnd: { on: "󰂛", off: "󰂚", label: "Do Not Disturb" },
   nightlight: { on: "󰖔", off: "󰖨", label: "Night Light" },
   stayawake: { on: "󰅶", off: "󰾫", label: "Stay Awake" },
-  layout: { on: "󰌌", off: "󰌌", label: "Keyboard" }
+  layout: { on: "󰌌", off: "󰌌", label: "Keyboard" },
+  update: { on: "󰛰", off: "󰛰", label: "Omarchy Update", onText: "Update available", offText: "Update available" }
 }
 
 function flashEvent(key, on, detail, duration) {
@@ -319,6 +320,7 @@ function flashEvent(key, on, detail, duration) {
   if (!spec) return null
   var text
   if (key === "layout") text = detail || "Layout changed"
+  else if (key === "update" && on && detail) text = detail
   else if (on && spec.onText) text = spec.onText
   else if (!on && spec.offText) text = spec.offText
   else text = spec.label + (on ? " on" : " off")
