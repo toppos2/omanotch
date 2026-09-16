@@ -9,6 +9,8 @@ Item {
   property string icon: ""
   property string label: ""
   property bool pulsing: true
+  // 0..1 swaps the pulsing dot for a shrinking progress ring (timers); -1 keeps the dot.
+  property real progress: -1
 
   readonly property real earWidth: Math.max(0, (width - (notch ? notch.notchWidth : 0)) / 2)
 
@@ -19,7 +21,19 @@ Item {
     Row {
       anchors.centerIn: parent
       spacing: 6
+      LevelRing {
+        visible: root.progress >= 0
+        anchors.verticalCenter: parent.verticalCenter
+        width: 15
+        height: 15
+        notch: root.notch
+        level: root.progress
+        active: true
+        stroke: 2
+        glyphSize: 0
+      }
       Rectangle {
+        visible: root.progress < 0
         anchors.verticalCenter: parent.verticalCenter
         width: 7
         height: 7

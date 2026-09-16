@@ -88,14 +88,20 @@ Item {
   // ------------------------------------------------------------ services
 
   // Services mount alongside panels, so poll until each one answers.
-  property var media: null
+  // omarchy.media in particular is never actually handed to a third-party
+  // "panel" plugin by the shell's capability model (that service is scoped
+  // to "bar"-kind plugins only), so shell.serviceFor("omarchy.media") always
+  // resolves to null here -- fall back to reading MPRIS directly.
+  property var media: mediaSource
   property var notifications: null
   property var nightlight: null
   property var idle: null
 
+  MediaSource { id: mediaSource }
+
   function resolveServices() {
     if (!shell || typeof shell.serviceFor !== "function") return
-    if (!media) media = shell.serviceFor("omarchy.media")
+    media = shell.serviceFor("omarchy.media") || mediaSource
     if (!notifications) notifications = shell.serviceFor("omarchy.notifications")
     if (!nightlight) nightlight = shell.serviceFor("omarchy.nightlight")
     if (!idle) idle = shell.serviceFor("omarchy.idle")
@@ -105,7 +111,7 @@ Item {
   Timer {
     interval: 750
     repeat: true
-    running: !root.media || !root.notifications || !root.nightlight || !root.idle
+    running: !root.notifications || !root.nightlight || !root.idle
     onTriggered: root.resolveServices()
   }
 
@@ -320,12 +326,18 @@ Item {
   // Screen recording: the recorder is a separate process, so poll for it.
   property bool recording: false
   property bool recordingRead: false
+  property double recordingStartedAt: 0
   Process {
     id: recordingProbe
-    command: ["sh", "-c", "pgrep -x 'gpu-screen-recorder|wf-recorder' >/dev/null 2>&1"]
+    // pgrep -x matches the kernel's 15-char "comm" field, so the full binary
+    // name "gpu-screen-recorder" (19 chars) never matches truncated -- use
+    // the truncated form instead of switching to -f, which would self-match
+    // this very sh -c invocation (its argv literally contains the pattern).
+    command: ["sh", "-c", "pgrep -x 'gpu-screen-reco|wf-recorder' >/dev/null 2>&1"]
     onExited: function(code) {
       var on = code === 0
       if (root.recordingRead && on !== root.recording) root.flash("recording", on)
+      if (on && !root.recording) root.recordingStartedAt = Date.now()
       root.recording = on
       root.recordingRead = true
     }
@@ -337,6 +349,19 @@ Item {
     triggeredOnStart: true
     onTriggered: if (!recordingProbe.running) recordingProbe.running = true
   }
+
+  // A ticking clock for whichever live activity (recording, a running
+  // timer) is currently pinning the island small. One shared timer avoids
+  // redundant per-activity intervals.
+  property double nowTick: Date.now()
+  Timer {
+    interval: 1000
+    repeat: true
+    running: root.recording || root.hasLiveTimer
+    triggeredOnStart: true
+    onTriggered: root.nowTick = Date.now()
+  }
+  readonly property string recordingElapsed: recording ? Model.formatClock(Math.floor((nowTick - recordingStartedAt) / 1000)) : ""
 
   readonly property bool dnd: notifications ? notifications.doNotDisturb === true : false
   onDndChanged: flash("dnd", dnd)
@@ -436,26 +461,52 @@ Item {
   function setDictationState(state) { dictationState = String(state || "idle") }
 
   // Reminders: count from omarchy-reminder, refreshed while the dashboard shows.
+  // The soonest-due one doubles as a Live Activity: a shrinking ring in the
+  // collapsed island, ticked locally between polls so it doesn't jump.
   property int reminderCount: 0
+  property var activeReminder: null
+  property double reminderPolledAt: 0
+  function applyReminderStatus(raw) {
+    var data
+    try { data = JSON.parse(raw || "{}") } catch (e) { data = {} }
+    var list = Array.isArray(data.reminders) ? data.reminders : []
+    reminderCount = Number(data.count || list.length || 0)
+    var soonest = null
+    for (var i = 0; i < list.length; i++) {
+      if (!soonest || Number(list[i].at) < Number(soonest.at)) soonest = list[i]
+    }
+    reminderPolledAt = Date.now()
+    activeReminder = soonest
+  }
   Process {
     id: reminderProbe
     command: ["omarchy-reminder", "show", "--json"]
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: {
-        try { root.reminderCount = Number(JSON.parse(this.text).count || 0) } catch (e) { root.reminderCount = 0 }
-      }
+      onStreamFinished: root.applyReminderStatus(this.text)
     }
-    onExited: function(code) { if (code !== 0) root.reminderCount = 0 }
+    onExited: function(code) { if (code !== 0) { root.reminderCount = 0; root.activeReminder = null } }
   }
   Timer {
-    interval: 30000
+    interval: 5000
     repeat: true
-    running: root.dashboardShowing
+    running: true
     triggeredOnStart: true
     onTriggered: if (!reminderProbe.running) reminderProbe.running = true
   }
   Timer { id: reminderRefresh; interval: 4000; onTriggered: if (!reminderProbe.running) reminderProbe.running = true }
+
+  readonly property int reminderRemainingNow: {
+    if (!activeReminder) return 0
+    var elapsed = Math.max(0, Math.round((nowTick - reminderPolledAt) / 1000))
+    return Math.max(0, Number(activeReminder.remainingSeconds || 0) - elapsed)
+  }
+  readonly property real reminderProgress: {
+    if (!activeReminder) return 0
+    var total = Math.max(1, Number(activeReminder.minutes || 0) * 60)
+    return Model.clamp(1 - reminderRemainingNow / total, 0, 1)
+  }
+  readonly property bool hasLiveTimer: activeReminder !== null && reminderRemainingNow > 0
 
   readonly property var dials: [
     { key: "volume", icon: volumeMuted ? "󰖁" : (volumeLevel < 0.34 ? "󰕿" : (volumeLevel < 0.67 ? "󰖀" : "󰕾")), level: volumeLevel, active: !volumeMuted },
@@ -633,8 +684,28 @@ Item {
   readonly property string expandedMode: hasMedia ? "media" : "dashboard"
   readonly property string islandState: Model.resolveState({
     calibrating: calibrating, event: currentEvent, expanded: expanded, mediaPlaying: mediaPlaying,
-    activity: dictating
+    activity: dictating || recording || hasLiveTimer
   })
+
+  // Only one live activity pins the island at a time; dictation is the most
+  // directly interactive so it wins, then recording, then a running timer.
+  readonly property string activityKind: dictating ? "dictation" : (recording ? "recording" : (hasLiveTimer ? "timer" : ""))
+  readonly property string activityIcon: {
+    if (activityKind === "dictation") return dictationState === "transcribing" ? "󰔟" : "󰍬"
+    if (activityKind === "recording") return "󰻂"
+    if (activityKind === "timer") return "󰥔"
+    return ""
+  }
+  readonly property string activityLabel: {
+    if (activityKind === "dictation") return dictationLabel
+    if (activityKind === "recording") return recordingElapsed
+    if (activityKind === "timer") return activeReminder
+      ? String(activeReminder.label || activeReminder.message || "Timer") + " · " + Model.formatClock(reminderRemainingNow)
+      : ""
+    return ""
+  }
+  readonly property bool activityPulsing: activityKind === "dictation" ? dictationState === "recording" : activityKind === "recording"
+  readonly property real activityProgress: activityKind === "timer" ? reminderProgress : -1
 
   // OSD events keep showing inside the expanded card instead of collapsing it.
   readonly property var inlineOsd: expanded && currentEvent && currentEvent.kind === "osd" ? currentEvent : null
@@ -644,7 +715,7 @@ Item {
     font.family: root.fontFamily
     font.pixelSize: root.captionSize
     font.weight: Font.Medium
-    text: root.dictationLabel
+    text: root.activityLabel
   }
 
   TextMetrics {
@@ -792,7 +863,10 @@ Item {
         anchors.fill: parent
         onClicked: {
           if (root.calibrating) return
-          if (root.islandState === "activity") root.runToggle("dictate")
+          if (root.islandState === "activity") {
+            if (root.activityKind === "dictation") root.runToggle("dictate")
+            else if (root.activityKind === "timer") root.runToggle("reminder")
+          }
           else root.pinned = !root.pinned
         }
       }
@@ -817,9 +891,10 @@ Item {
       ActivityRow {
         anchors.fill: parent
         notch: root
-        icon: root.dictationState === "transcribing" ? "󰔟" : "󰍬"
-        label: root.dictationLabel
-        pulsing: root.dictationState === "recording"
+        icon: root.activityIcon
+        label: root.activityLabel
+        pulsing: root.activityPulsing
+        progress: root.activityProgress
         opacity: root.islandState === "activity" ? 1 : 0
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: 160 } }
