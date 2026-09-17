@@ -912,16 +912,29 @@ Item {
       // are MouseAreas, so their presses stop above this one. While media is
       // playing, a second click swaps the media card for the dashboard
       // instead of closing, so the other controls stay reachable; a third
-      // click closes it.
+      // click closes it. Right-click jumps straight to the dashboard (or
+      // closes the card if it's already open), skipping the media card.
       MouseArea {
         anchors.fill: parent
-        onClicked: {
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onClicked: function(mouse) {
           if (root.calibrating) return
           if (root.islandState === "activity") {
+            if (mouse.button !== Qt.LeftButton) return
             if (root.activityKind === "dictation") root.runToggle("dictate")
             else if (root.activityKind === "timer") root.runToggle("reminder")
+            return
           }
-          else if (!root.pinned) {
+          if (mouse.button === Qt.RightButton) {
+            if (!root.pinned) {
+              root.dashboardOverride = true
+              root.pinned = true
+            } else {
+              root.pinned = false
+            }
+            return
+          }
+          if (!root.pinned) {
             root.dashboardOverride = false
             root.pinned = true
           }
