@@ -717,13 +717,20 @@ Item {
   property bool hoverSuppressed: false
   readonly property bool expanded: (hovered || pinned) && !calibrating && !hoverSuppressed
 
+  // While media is playing, a click cycles the pinned card past the
+  // dashboard before it closes (see the island MouseArea below). Cleared
+  // whenever the card fully collapses so it always reopens on the media
+  // view first.
+  property bool dashboardOverride: false
+  onExpandedChanged: if (!expanded) dashboardOverride = false
+
   function minimizeUntilPointerLeaves() {
     hoverTimer.stop()
     hovered = false
     pinned = false
     hoverSuppressed = true
   }
-  readonly property string expandedMode: hasMedia ? "media" : "dashboard"
+  readonly property string expandedMode: hasMedia && !dashboardOverride ? "media" : "dashboard"
   readonly property string islandState: Model.resolveState({
     calibrating: calibrating, event: currentEvent, expanded: expanded, mediaPlaying: mediaPlaying,
     activity: dictating || recording || hasLiveTimer
@@ -902,7 +909,10 @@ Item {
       }
 
       // Click toggles the card open for touchpad use. Controls on the cards
-      // are MouseAreas, so their presses stop above this one.
+      // are MouseAreas, so their presses stop above this one. While media is
+      // playing, a second click swaps the media card for the dashboard
+      // instead of closing, so the other controls stay reachable; a third
+      // click closes it.
       MouseArea {
         anchors.fill: parent
         onClicked: {
@@ -911,7 +921,16 @@ Item {
             if (root.activityKind === "dictation") root.runToggle("dictate")
             else if (root.activityKind === "timer") root.runToggle("reminder")
           }
-          else root.pinned = !root.pinned
+          else if (!root.pinned) {
+            root.dashboardOverride = false
+            root.pinned = true
+          }
+          else if (root.hasMedia && !root.dashboardOverride) {
+            root.dashboardOverride = true
+          }
+          else {
+            root.pinned = false
+          }
         }
       }
       HoverHandler {
