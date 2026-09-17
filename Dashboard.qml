@@ -91,8 +91,8 @@ Item {
       id: controls
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.verticalCenter: parent.verticalCenter
-      readonly property int items: 9 + (clock.visible ? 1 : 0)
-      readonly property real fixedWidth: 9 * root.notch.toggleSize + (clock.visible ? clock.width : 0)
+      readonly property int items: 10 + (clock.visible ? 1 : 0)
+      readonly property real fixedWidth: 10 * root.notch.toggleSize + (clock.visible ? clock.width : 0)
       spacing: Math.max(6, Math.floor((body.width - fixedWidth) / (items - 1)))
 
       Repeater {

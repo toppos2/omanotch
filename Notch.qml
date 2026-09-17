@@ -574,7 +574,8 @@ Item {
     { key: "dnd", icon: dnd ? "󰂛" : "󰂚", label: "Do Not Disturb", active: dnd },
     { key: "nightlight", icon: "󰖔", label: "Night Light", active: nightlightOn },
     { key: "stayawake", icon: "󰅶", label: "Stay Awake", active: stayAwake },
-    { key: "dictate", icon: dictationState === "transcribing" ? "󰔟" : "󰍬", label: "Dictate", active: dictating }
+    { key: "dictate", icon: dictationState === "transcribing" ? "󰔟" : "󰍬", label: "Dictate", active: dictating },
+    { key: "displays", icon: "󰍺", label: "Displays", active: false }
   ]
   readonly property bool reminderPending: reminderCount > 0
 
@@ -594,6 +595,10 @@ Item {
       } else {
         Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", "omarchy-voxtype-install"])
       }
+    }
+    else if (key === "displays") {
+      if (shell && typeof shell.toggle === "function") shell.toggle("crmne.hyprmoncfg", "")
+      minimizeUntilPointerLeaves()
     }
   }
 
